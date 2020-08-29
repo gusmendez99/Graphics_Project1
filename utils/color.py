@@ -11,4 +11,4 @@ def normalize_color(colors_array):
 
 
 def color(r, g, b):
-    return bytes([int(b * 255), int(g * 255), int(r * 255)])
+    return bytes([b, g, r])

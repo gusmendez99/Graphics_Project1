@@ -68,12 +68,12 @@ def bbox(*vertices):
     xs.sort()
     ys.sort()
 
-    xmin = xs[0]
-    xmax = xs[-1]
-    ymin = ys[0]
-    ymax = ys[-1]
+    xmin = int(xs[0])    
+    xmax = int(xs[-1])
+    ymin = int(ys[0])    
+    ymax = int(ys[-1])
 
-    return xmin, xmax, ymin, ymax
+    return V2(xmin, ymin), V2(xmax, ymax)
 
 
 def cross(v1, v2):
@@ -118,7 +118,7 @@ def matrix_mul(A, B):
     C = []
     try: 
         for i in range(rows_matrix_a):
-            C.append([0] * rows_matrix_b)
+            C.append([0] * columns_matrix_b)
 
         # A * B, stores result on C matrix  
         for i in range(rows_matrix_a):

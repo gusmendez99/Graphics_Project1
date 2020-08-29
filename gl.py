@@ -11,53 +11,38 @@ from utils.encoder import char, dword, word
 from utils.math import *
 
 from obj import Obj
+from shaders import gourad
 
-BLACK = 0, 0, 0
-# Saturn color intervals, up to center
-MELON = 136, 195, 222
-BROWN = 105, 145, 170
-LAVENDER = 156, 152, 164
+BLACK = color(0, 0, 0)
+WHITE = color(255, 255, 255)
+
 
 class Render(object):
-    # glInit dont needed, 'cause we have an __init__ func
-    def __init__(self):
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+        self.current_color = WHITE
+        self.light = V3(0, 0, 1)
         self.active_shader = None
         self.active_texture = None
-        self.framebuffer = []
-        self.width = 800
-        self.height = 800
-        self.viewport_x = 0
-        self.viewport_y = 0
-        self.viewport_width = 800
-        self.viewport_height = 800
+        self.active_vertex_array = []
         self.clear()
 
+    def clear(self):
+        self.framebuffer = [[BLACK for x in range(self.width)] for y in range(self.height)]
         self.zbuffer = [
-            [-float('inf') for x in range(self.width)] for y in range(self.height)
+            [-float("inf") for x in range(self.width)] for y in range(self.height)
         ]
-        # For shader use
-        self.shape = None
 
     def point(self, x, y, color):
         self.framebuffer[y][x] = color
 
-    def create_window(self, width, height):
-        self.height = height
-        self.width = width
-
-    def viewport(self, x, y, width, height):
-        # Setting viewport initial values
-        self.viewport_x = x
-        self.viewport_y = y
-        self.viewport_height = height
-        self.viewport_width = width
-
-    def clear(self):
+    """ def clear_color(self):
         r, g, b = BLACK
         bg_color = color(r, g, b)
         self.framebuffer = [
             [bg_color for x in range(self.width)] for y in range(self.height)
-        ]
+        ] """
 
     def clear_color(self, r=1, g=1, b=1):
         # get normalized colors as array
@@ -68,95 +53,123 @@ class Render(object):
             [clearColor for x in range(self.width)] for y in range(self.height)
         ]
 
-    def triangle(self, A, B, C):
-        xmin, xmax, ymin, ymax = bbox(A, B, C)
+    def triangle(self, A, B, C, color= BLACK, texture= None, texture_coords=(), intensity=1, normals=(None, None, None), light = V3(0,1,1)):
+        bbox_min, bbox_max = bbox(A, B, C)
 
-        for x in range(xmin, xmax + 1):
-            for y in range(ymin, ymax + 1):
-                P = V2(x, y)
-                w, v, u = barycentric(A, B, C, P)
-                if w < 0 or v < 0 or u < 0:
-                    # point is outside
+        fill_color = color
+        
+        for x in range(bbox_min.x, bbox_max.x + 1):
+            for y in range (bbox_min.y, bbox_max.y + 1):
+                w, v, u = barycentric(A,B,C, V2(x,y))
+                if w< 0 or v <0 or u<0:
                     continue
+                
+                if texture and x>=0 and y >=0 and x < self.width and y< self.height:
+                    tA, tC, tB = texture_coords
+                    tx = tA.x*w + tB.x*v + tC.x*u
+                    ty = tA.y*w + tB.y*v + tC.y*u
+                    if self.active_shader != None:
+                        fill_color = self.active_shader(self, x, y, bary_coords=(w,v,u), normals=normals, light = light, texture_coords = (tx, ty))
+                    else:
+                        fill_color = texture.get_color(tx, ty, intensity)
 
-                z = A.z * u + B.z * v + C.z * w
+                    z = A.z * w + B.z * v  + C.z * u
+                    
+                    if z > self.zbuffer[y][x]:
+                        self.point(x, y, fill_color)
+                        self.zbuffer[y][x] = z
 
-                r, g, b = self.shader(
-                    x, y
-                )
+                if not texture and x>=0 and y >=0 and x < self.width and y< self.height:
+                    fill_color = color(fill_color[0],fill_color[1],fill_color[2])
+                    z = A.z * w + B.z * v  + C.z * u
+                    if z > self.zbuffer[x][y]:
+                        self.point(x,y,fill_color)
+                        self.zbuffer[x][y] = z
 
-                shader_color = color(r, g, b)
+    def transform(self, vertex):
+        augmented = [[float(vertex[0])], [float(vertex[1])], [float(vertex[2])], [1.0]]
 
-                if z > self.zbuffer[y][x]:
-                    self.point(x, y, shader_color)
-                    self.zbuffer[y][x] = z
+        # matrix mul from outside -> inside
+        vertices = matrix_mul(
+            matrix_mul(
+                matrix_mul(matrix_mul(self.Viewport, self.Projection), self.View),
+                self.Model,
+            ),
+            augmented,
+        )
 
-    # Loads initial model matrix 
+        vf = V3(
+            round(vertices[0][0] / vertices[3][0]),
+            round(vertices[1][0] / vertices[3][0]),
+            round(vertices[2][0] / vertices[3][0]),
+        )
+        return vf
+
+    # Loads initial model matrix
     def load_model_matrix(self, translate, scale, rotate):
-        translate = Vector3(*translate)
-        rotate = Vector3(*rotate)
-        scale = Vector3(*scale)
+        translate = V3(*translate)
+        rotate = V3(*rotate)
+        scale = V3(*scale)
         translate_matrix = [
-            [1.0,0.0,0.0,translate.x],
-            [0.0,1.0,0.0,translate.y],
-            [0.0,0.0,1.0,translate.z],
-            [0.0,0.0,0.0,1.0],
+            [1.0, 0.0, 0.0, translate.x],
+            [0.0, 1.0, 0.0, translate.y],
+            [0.0, 0.0, 1.0, translate.z],
+            [0.0, 0.0, 0.0, 1.0],
         ]
         scale_matrix = [
-            [scale.x,0.0,0.0,0.0],
-            [0.0,scale.y,0.0,0.0],
-            [0.0,0.0,scale.z,0.0],
-            [0.0,0.0,0.0,1.0],
+            [scale.x, 0.0, 0.0, 0.0],
+            [0.0, scale.y, 0.0, 0.0],
+            [0.0, 0.0, scale.z, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
         ]
 
         rotation_matrix_x = [
-            [1.0,0.0,0.0,0.0],
-            [0.0,cos(rotate.x),-sin(rotate.x),0.0],
-            [0.0,sin(rotate.x), cos(rotate.x),0.0],
-            [0.0,0.0,0.0,1.0]
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, cos(rotate.x), -sin(rotate.x), 0.0],
+            [0.0, sin(rotate.x), cos(rotate.x), 0.0],
+            [0.0, 0.0, 0.0, 1.0],
         ]
         rotation_matrix_y = [
-            [cos(rotate.y),0.0,sin(rotate.y),0.0],
-            [0.0,1.0,0.0,0.0],
-            [-sin(rotate.y),0.0, cos(rotate.y),0.0],
-            [0.0,0.0,0.0,1.0]
+            [cos(rotate.y), 0.0, sin(rotate.y), 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [-sin(rotate.y), 0.0, cos(rotate.y), 0.0],
+            [0.0, 0.0, 0.0, 1.0],
         ]
         rotation_matrix_z = [
-            [cos(rotate.z),-sin(rotate.z),0.0,0.0],
-            [sin(rotate.z), cos(rotate.z),0.0,0.0],
-            [0.0,0.0,1.0,0.0],
-            [0.0,0.0,0.0,1.0]
+            [cos(rotate.z), -sin(rotate.z), 0.0, 0.0],
+            [sin(rotate.z), cos(rotate.z), 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
         ]
-        
-        rotation_matrix = matrix_mul(matrix_mul(rotation_matrix_x, rotation_matrix_y), rotation_matrix_z)
-        self.model = matrix_mul(matrix_mul(translate_matrix, rotation_matrix), scale_matrix)
 
-
-    
+        rotation_matrix = matrix_mul(
+            matrix_mul(rotation_matrix_x, rotation_matrix_y), rotation_matrix_z
+        )
+        self.Model = matrix_mul(
+            matrix_mul(translate_matrix, rotation_matrix), scale_matrix
+        )
 
     # loads view matrix
     def load_view_matrix(self, x, y, z, center):
         M = [
-            [x.x, x.y, x.z,0.0],
-            [y.x, y.y, y.z,0.0],
-            [z.x, z.y, z.z,0.0],
-            [0.0,0.0,0.0,1.0]
-
+            [x.x, x.y, x.z, 0.0],
+            [y.x, y.y, y.z, 0.0],
+            [z.x, z.y, z.z, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
         ]
 
         O = [
-            [1.0,0.0,0.0,-center.x],
-            [0.0,1.0,0.0,-center.y],
-            [0.0,0.0,1.0,-center.z],
-            [0.0,0.0,0.0,1.0]
-
+            [1.0, 0.0, 0.0, -center.x],
+            [0.0, 1.0, 0.0, -center.y],
+            [0.0, 0.0, 1.0, -center.z],
+            [0.0, 0.0, 0.0, 1.0],
         ]
 
-        self.view = matrix_mul(M, O)
-    
+        self.View = matrix_mul(M, O)
+
     # loads projection matrix
     def load_projection_matrix(self, coefficient):
-        self.projection = [
+        self.Projection = [
             [1.0, 0.0, 0.0, 0.0],
             [0.0, 1.0, 0.0, 0.0],
             [0.0, 0.0, 1.0, 0.0],
@@ -165,120 +178,137 @@ class Render(object):
 
     # loads viewport matrix
     def load_viewport_matrix(self, x=0, y=0):
-        self.viewport = [
-            [self.width/2, 0.0, 0.0, y + (self.width/2)],
-            [0.0, self.height/2, 0.0, x + (self.height/2)],
+        self.Viewport = [
+            [self.width / 2, 0.0, 0.0, y + (self.width / 2)],
+            [0.0, self.height / 2, 0.0, x + (self.height / 2)],
             [0.0, 0.0, 128.0, 128.0],
             [0.0, 0.0, 0.0, 1.0],
         ]
-    
+
     """
     eye: xyz camera location 
     center: camera center view
-    up: vector over camera
+    up: camera vector
     """
+
     def look_at(self, eye, up, center):
-        
-        #z vector comes from center to eye
-        z = norm(sub(eye,center))
-        x = norm(cross(up,z))
-        y = norm(cross(z,x))
+
+        # z vector comes from center to eye
+        z = norm(sub(eye, center))
+        x = norm(cross(up, z))
+        y = norm(cross(z, x))
 
         self.load_view_matrix(x, y, z, center)
-        self.load_projection_matrix(-1.0 / length(sub(eye,center)))
+        self.load_projection_matrix(-1.0 / length(sub(eye, center)))
         self.load_viewport_matrix()
-    
+
     # draw just shape of model
     def draw_arrays(self, polygon):
-        if polygon == 'TRIANGLES':
-        try:
-            while True:
-                self.triangle()
-        except StopIteration:
-            print('Done.')
+        if polygon == "TRIANGLES":
+            try:
+                while True:
+                    self.triangle()
+            except StopIteration:
+                print("Done.")
 
     # loads background image
-    def load_background(self, texture= None):
+    def load_background(self, texture=None):
         for x in range(self.width):
-            for y in range (self.height):
+            for y in range(self.height):
                 color = texture.pixels[y][x]
                 self.point(x, y, color)
-    
-    def load(self, filename="default.obj", translate=[0, 0], scale=[1, 1], shape=None):
+
+    def load(self, filename, texture, translate =(0,0,0), scale= (1, 1, 1), rotate = (0,0,0),
+            eye = (0,0.5,0.5), up = (0,1,0), center=(0,0,0), light = V3(0,0,1)):
+        
+        self.active_texture = texture
+        #self.active_shader = gourad
+
         model = Obj(filename)
-        self.shape = shape
+
+        self.load_viewport_matrix()
+        self.load_model_matrix(translate, scale, rotate)
+        self.look_at(V3(*eye), V3(*up), V3(*center))
 
         for face in model.faces:
             vcount = len(face)
 
-            if vcount == 3:
-                face1 = face[0][0] - 1
-                face2 = face[1][0] - 1
-                face3 = face[2][0] - 1
+            if vcount == 3:    
+                n1 = face[0][2] -1
+                n2 = face[1][2] -1
+                n3 = face[2][2] -1
 
-                v1 = model.vertices[face1]
-                v2 = model.vertices[face2]
-                v3 = model.vertices[face3]
+                na = V3(*model.normals[n1])
+                nb = V3(*model.normals[n2])
+                nc = V3(*model.normals[n3])
+                
+                f1 = face[0][0] -1
+                f2 = face[1][0] -1
+                f3 = face[2][0] -1
 
-                x1 = round((v1[0] * scale[0]) + translate[0])
-                y1 = round((v1[1] * scale[1]) + translate[1])
-                z1 = round((v1[2] * scale[2]) + translate[2])
+                a = self.transform(model.vertices[f1])
+                b = self.transform(model.vertices[f2])
+                c = self.transform(model.vertices[f3])
 
-                x2 = round((v2[0] * scale[0]) + translate[0])
-                y2 = round((v2[1] * scale[1]) + translate[1])
-                z2 = round((v2[2] * scale[2]) + translate[2])
+                normal = norm(cross(sub(b,a), sub(c, a)))
+                intensity = dot(normal, light)
+                shade = round(255 * intensity)
 
-                x3 = round((v3[0] * scale[0]) + translate[0])
-                y3 = round((v3[1] * scale[1]) + translate[1])
-                z3 = round((v3[2] * scale[2]) + translate[2])
+                if shade <0 :
+                    continue
+                elif shade > 255:
+                    shade = 255
 
-                a = V3(x1, y1, z1)
-                b = V3(x2, y2, z2)
-                c = V3(x3, y3, z3)
+                if intensity > 1.0:
+                    intensity = 1
 
-                vn0 = model.normals[face[0][2] - 1]
-                vn1 = model.normals[face[1][2] - 1]
-                vn2 = model.normals[face[2][2] - 1]
+                        
+                if not texture:
+                    self.triangle(
+                        a,b,c, 
+                        texture = None, 
+                        texture_coords = (),
+                        intensity = intensity,
+                        normals = (na, nc, nb),
+                        light=light
+                    )
+                    
+                else:
+                    vertex_buffer_object = []
+                    for facepart in face:
+                        if len(model.tvertices[facepart[1]-1]) == 2:
+                            tvertex = V2(*model.tvertices[facepart[1]-1])
+                        elif len(model.tvertices[facepart[1]-1]) == 3:
+                            tvertex = V3(*model.tvertices[facepart[1]-1])
+                        vertex_buffer_object.append(tvertex)
 
-                self.triangle(a, b, c)
+                    t1 = face[0][1]-1
+                    t2 = face[1][1]-1
+                    t3 = face[2][1]-1
 
-            else:
-                face1 = face[0][0] - 1
-                face2 = face[1][0] - 1
-                face3 = face[2][0] - 1
-                face4 = face[3][0] - 1
+                    tA = vertex_buffer_object[0]
+                    tB = vertex_buffer_object[1]
+                    tC = vertex_buffer_object[2]
 
-                v1 = model.vertices[face1]
-                v2 = model.vertices[face2]
-                v3 = model.vertices[face3]
-                v4 = model.vertices[face4]
+                    if self.active_shader != None:
+                        self.triangle(
+                            a,b,c,
+                            texture=texture,
+                            texture_coords= (tA, tB, tC), 
+                            intensity = intensity,
+                            normals = (na, nc, nb),
+                            light=light
+                        )
+                    else:
+                        self.triangle(
+                            a,b,c,
+                            texture=texture,
+                            texture_coords= (tA, tB, tC), 
+                            intensity = intensity,
+                        )
 
-                x1 = round((v1[0] * scale[0]) + translate[0])
-                y1 = round((v1[1] * scale[1]) + translate[1])
-                z1 = round((v1[2] * scale[2]) + translate[2])
-
-                x2 = round((v2[0] * scale[0]) + translate[0])
-                y2 = round((v2[1] * scale[1]) + translate[1])
-                z2 = round((v2[2] * scale[2]) + translate[2])
-
-                x3 = round((v3[0] * scale[0]) + translate[0])
-                y3 = round((v3[1] * scale[1]) + translate[1])
-                z3 = round((v3[2] * scale[2]) + translate[2])
-
-                x4 = round((v4[0] * scale[0]) + translate[0])
-                y4 = round((v4[1] * scale[1]) + translate[1])
-                z4 = round((v4[2] * scale[2]) + translate[2])
-
-                a = V3(x1, y1, z1)
-                b = V3(x2, y2, z2)
-                c = V3(x3, y3, z3)
-                d = V3(x4, y4, z4)
-
-                self.triangle(a, b, c)
-                self.triangle(a, c, d)
-
+    # starts creating a new bmp file
     def finish(self, filename="out.bmp"):
-        # starts creating a new bmp file
         f = open(filename, "bw")
 
         f.write(char("B"))

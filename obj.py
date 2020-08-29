@@ -4,40 +4,40 @@
 
     obj.py - parse a .obj file to simple array values
 """
+import struct
+from utils.color import color
 
 
 class Obj(object):
     def __init__(self, filename):
+        self.vertices =[] 
+        self.tvertices = []
+        self.normals =[]
+        self.faces = []
         with open(filename) as f:
             self.lines = f.read().splitlines()
-
-        self.vertices = []
-        self.faces = []
-        self.text_coords = []
-        self.normals = []
         self.read()
 
     def read(self):
+        key = ""
         for line in self.lines:
             if line:
-                prefix, value = line.split(" ", 1)
+                prefix, value = line.split(' ', 1)
 
-                # Split vertices
+                """ if prefix == "usemtl":
+                    key = value
+                    self.matf[key] = [] """
                 if prefix == "v":
-                    # vertice
-                    self.vertices.append(list(map(float, value.split(" "))))
-                # Split normals
-                elif prefix == "vn":
-                    self.normals.append(list(map(float, value.split(" "))))
-                # Split text coords
+                    self.vertices.append(list(map(float, value.split(' '))))
+                if prefix == "vn":
+                    self.normals.append(list(map(float, value.split(' '))))
                 elif prefix == "vt":
-                    self.text_coords.append(list(map(float, value.split(" "))))
-                # Split faces
+                    self.tvertices.append(list(map(float, value.split(' '))))
                 elif prefix == "f":
-                    # face
-                    self.faces.append(
-                        [list(map(int, face.split("/"))) for face in value.split(" ")]
-                    )
+                    self.faces.append([list(map(int, face.split('/'))) for face in value.split(' ')])
+                    #self.matf[key].append([list(map(int, face.split('/'))) for face in value.split(' ')])
+
+
 
 class Texture(object):
     def __init__(self, path):
@@ -58,15 +58,20 @@ class Texture(object):
         for y in range(self.height):
             self.pixels.append([])
             for x in range(self.width):
-                b = ord(img.read(1)) #ord se usa para obtener el numero de un char
+                b = ord(img.read(1))  # ord se usa para obtener el numero de un char
                 g = ord(img.read(1))
                 r = ord(img.read(1))
-                self.pixels[y].append(color(r,g,b))
+                self.pixels[y].append(color(r, g, b))
 
         img.close()
 
     # gets color (from normalized coords)
-    def get_color(self, tx, ty):
+    def get_color(self, tx, ty, intensity):
         x = int(tx * self.width)
         y = int(ty * self.height)
-        return bytes(map(lambda value: round(b) if (value > 0) else 0,(self.pixels[y][x])))
+        return bytes(map(lambda b: round(b*intensity) if (b *intensity > 0) else 0,(self.pixels[y][x])))
+    
+    def get_simple_color(self, tx, ty):
+        x = int(tx * self.width)
+        y = int(ty * self.height)
+        return bytes(map(lambda b: round(b) if (b > 0) else 0,(self.pixels[y][x])))
