@@ -1,40 +1,43 @@
-import struct
-from utils.color import color
-
+from bmp import BMP
 
 class Texture(object):
-    def __init__(self, path):
-        self.path = path
-        self.read()
+	"""
+	Texture class
+	"""
 
-    def read(self):
-        img = open(self.path, "rb")
-        img.seek(2 + 4 + 4)
-        header_size = struct.unpack("=l", img.read(4))[0]
-        img.seek(2 + 4 + 4 + 4 + 4)
-        self.width = struct.unpack("=l", img.read(4))[0]
-        self.height = struct.unpack("=l", img.read(4))[0]
-        self.pixels = []
-        img.seek(header_size)
+	def __init__(self, filename):
+		"""
+		Initialized texture values
+		"""
+		self.filename = filename
+		self.active_texture = None
+		self.load()
 
-        # 24-bits bmp
-        for y in range(self.height):
-            self.pixels.append([])
-            for x in range(self.width):
-                b = ord(img.read(1))  # ord se usa para obtener el numero de un char
-                g = ord(img.read(1))
-                r = ord(img.read(1))
-                self.pixels[y].append(color(r, g, b))
+	def load(self):
+		"""
+		Loads Texture
+		"""
+		print("Loading texture...")
+		self.active_texture = BMP(0, 0)
+		try:
+			self.active_texture.load(self.filename)
+		except:
+			print("No texture found.")
+			self.active_texture = None
 
-        img.close()
+	def write(self):
+		"""
+		Writes texture (if needed as BMP)
+		"""
+		self.active_texture.write(self.filename[:len(self.filename)-4]+"text.bmp")
 
-    # gets color (from normalized coords)
-    def get_color(self, tx, ty, intensity=1):
-        x = int(tx * self.width)
-        y = int(ty * self.height)
-        return bytes(
-            map(
-                lambda b: round(b * intensity) if (b * intensity > 0) else 0,
-                (self.pixels[y][x]),
-            )
-        )
+	def get_color(self, tx, ty, intensity=1):
+		"""
+		Gets color from texture coords
+		"""
+		x = self.active_texture.width -1 if ty == 1 else int(ty*self.active_texture.width)
+		y = self.active_texture.height -1 if tx == 1 else int(tx*self.active_texture.height)
+		return bytes(map(lambda b: round(b*intensity) if b*intensity > 0 else 0, self.active_texture.framebuffer[y][x]))
+
+	def is_textured(self):
+		return self.active_texture != None

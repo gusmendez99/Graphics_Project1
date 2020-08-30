@@ -1,391 +1,569 @@
-"""
-    Universidad del Valle de Guatemala
-    Gustavo Mendez - 18500
-
-    gl.py - all logic to create a bmp file
-"""
-
-from utils.color import color, normalize_color
+from bmp import BMP
+from obj import OBJ
+from texture import Texture
+from matrix import Matrix
 from math import cos, sin
-from utils.encoder import char, dword, word
-from utils.math import *
-
-from obj import Obj
-from shaders import gourad
-
-BLACK = color(0, 0, 0)
-WHITE = color(255, 255, 255)
 
 
 class Render(object):
-    def __init__(self, width, height):
-        self.width = width
-        self.height = height
-        self.current_color = WHITE
-        self.light = V3(0, 0, 1)
-        self.active_shader = None
-        self.active_texture = None
-        self.active_material = None
-        self.active_vertex_array = []
-        self.clear()
 
-    def clear(self):
-        self.framebuffer = [
-            [BLACK for x in range(self.width)] for y in range(self.height)
-        ]
-        self.zbuffer = [
-            [-float("inf") for x in range(self.width)] for y in range(self.height)
-        ]
+	def __init__(self):
+		"""
+		Initializes render
+		"""
+		self.image = BMP(0,0)
+		self.viewport_start = (0,0)
+		self.viewport_size = (0,0)
+		self.color = self.image.color(255,255,255)
+		self.filename = "output.bmp"
+		self.obj = None
+		self.texture = None
 
-    def point(self, x, y, color):
-        self.framebuffer[y][x] = color
+	def set_image(self, bmp):
+		"""
+		Replace image with new BMP
+		"""
+		self.image = bmp
 
-    def clear_color(self, r=1, g=1, b=1):
-        # get normalized colors as array
-        normalized = normalize_color([r, g, b])
-        clearColor = color(normalized[0], normalized[1], normalized[2])
+	def create_window(self, width, height):
+		"""
+		Sets window size
+		"""
+		self.image = BMP(width, height)
+		self.viewport_size = (width, height)
 
-        self.framebuffer = [
-            [clearColor for x in range(self.width)] for y in range(self.height)
-        ]
+	def viewport(self, x, y, width, height):
+		"""
+		Sets image size (inner size)
+		"""
+		self.viewport_start = (x, y)
+		self.viewport_size = (width,height)
 
-    def triangle(
-        self,
-        A,
-        B,
-        C,
-        fill_color=WHITE,
-        texture=None,
-        texture_coords=(),
-        intensity=1,
-        normals=(None, None, None),
-        light=V3(0, 1, 1)
-    ):
-        bbox_min, bbox_max = bbox(A, B, C)
+	def clear(self):
+		"""
+		Clears image color
+		"""
+		self.image.clear()
 
-        for x in range(bbox_min.x, bbox_max.x + 1):
-            for y in range(bbox_min.y, bbox_max.y + 1):
-                w, v, u = barycentric(A, B, C, V2(x, y))
-                if w < 0 or v < 0 or u < 0:
-                    continue
+	def clear_color(self, r, g, b):
+		"""
+		Clears image color with rgb color passed
+		"""
+		self.image.clear(int(255*r), int(255*g), int(255*b))
 
-                if texture and x >= 0 and y >= 0 and x < self.width and y < self.height:
-                    tA, tC, tB = texture_coords
-                    tx = tA.x * w + tB.x * v + tC.x * u
-                    ty = tA.y * w + tB.y * v + tC.y * u
-                    if self.active_shader != None:
-                        fill_color = self.active_shader(
-                            self,
-                            x,
-                            y,
-                            bary_coords=(w, v, u),
-                            normals=normals,
-                            light=light,
-                            texture_coords=(tx, ty),
-                        )
-                    else:
-                        fill_color = texture.get_color(tx, ty, intensity)
+	def vertex(self, x, y):
+		"""
+		Replaces color pixel inside viewport
+		"""
+		view_x = int(self.viewport_size[0] * (x+1) * (1/2) + self.viewport_start[0])
+		view_y = int(self.viewport_size[1] * (y+1) * (1/2) + self.viewport_start[1])
+		self.image.point(view_x, view_y, self.color)
 
-                    z = A.z * w + B.z * v + C.z * u
+	def set_color(self, r, g, b):
+		"""
+		Changes current color
+		"""
+		self.color = self.image.color(int(255*r), int(255*g), int(255*b))
+		return self.color
 
-                    if z > self.zbuffer[y][x]:
-                        self.point(x, y, fill_color)
-                        self.zbuffer[y][x] = z
+	def finish(self):
+		"""
+		Writes final BMP file
+		"""
+		self.image.write(self.filename)
 
-                if (
-                    not texture
-                    and x >= 0
-                    and y >= 0
-                    and x < self.width
-                    and y < self.height
-                ):
-                    fill_color = color(fill_color[0], fill_color[1], fill_color[2])
-                    z = A.z * w + B.z * v + C.z * u
-                    if z > self.zbuffer[y][x]:
-                        self.point(x, y, fill_color)
-                        self.zbuffer[y][x] = z
+	def line(self, xo, yo, xf, yf):
+		"""
+		Places a new line between two points
+		"""
+		x1 = int(self.viewport_size[0] * (xo+1) * (1/2) + self.viewport_start[0])
+		y1 = int(self.viewport_size[1] * (yo+1) * (1/2) + self.viewport_start[1])
+		x2 = int(self.viewport_size[0] * (xf+1) * (1/2) + self.viewport_start[0])
+		y2 = int(self.viewport_size[1] * (yf+1) * (1/2) + self.viewport_start[1])
+		
+		dy = abs(y2 - y1)
+		dx = abs(x2 - x1)
+		steep = dy > dx
+		if steep:
+			x1, y1 = y1, x1
+			x2, y2 = y2, x2
+		if (x1 > x2):
+			x1, x2 = x2, x1
+			y1, y2 = y2, y1
+		dy = abs(y2 - y1)
+		dx = abs(x2 - x1)
+		offset = 0
+		threshold = dx
+		y = y1
+		for x in range(x1, x2 + 1):
+			if steep:
+				self.image.point(y, x, self.color)
+			else:
+				self.image.point(x, y, self.color)
 
-    def transform(self, vertex):
-        augmented = [[float(vertex[0])], [float(vertex[1])], [float(vertex[2])], [1.0]]
+			offset += dy * 2
+			if offset >= threshold:
+				y +=1 if y1 < y2 else -1
+				threshold += 2 * dx
+	
+	def set_filename(self, filename):
+		"""
+		Sets final render filename
+		"""
+		self.filename = filename
 
-        # matrix mul from outside -> inside
-        vertices = matrix_mul(
-            matrix_mul(
-                matrix_mul(matrix_mul(self.Viewport, self.Projection), self.View),
-                self.Model,
-            ),
-            augmented,
-        )
+	def load_obj(self, filename, translate=(0, 0, 0), scale=(1, 1, 1), rotate=(0, 0, 0), fill=True, textured=None, shader=None):
+		"""
+		Loads .obj file
+		"""
+		self.model_matrix(translate, scale, rotate)
+		self.obj = OBJ(filename)
+		self.obj.load()
+		print("Rendering... " + filename)
+		
+		light = self.norm((0,0,1))
+		faces = self.obj.faces
+		vertices = self.obj.vertices
+		materials = self.obj.materials
+		textures = self.obj.textures
+		normals = self.obj.normals
+		mat_faces = self.obj.material_faces
+		self.texture = Texture(textured)
 
-        vf = V3(
-            round(vertices[0][0] / vertices[3][0]),
-            round(vertices[1][0] / vertices[3][0]),
-            round(vertices[2][0] / vertices[3][0]),
-        )
-        return vf
+		if materials:
+			for mats in mat_faces:
+				start, stop = mats[0]
+				color = materials[mats[1]].diffuse_color
+				for index in range(start, stop):
+					face = faces[index]
+					vcount = len(face)
 
-    # Loads initial model matrix
-    def load_model_matrix(self, translate, scale, rotate):
-        translate = V3(*translate)
-        rotate = V3(*rotate)
-        scale = V3(*scale)
-        translate_matrix = [
-            [1.0, 0.0, 0.0, translate.x],
-            [0.0, 1.0, 0.0, translate.y],
-            [0.0, 0.0, 1.0, translate.z],
-            [0.0, 0.0, 0.0, 1.0],
-        ]
-        scale_matrix = [
-            [scale.x, 0.0, 0.0, 0.0],
-            [0.0, scale.y, 0.0, 0.0],
-            [0.0, 0.0, scale.z, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ]
+					if vcount == 3:
+						f1 = face[0][0] - 1
+						f2 = face[1][0] - 1
+						f3 = face[2][0] - 1
 
-        rotation_matrix_x = [
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, cos(rotate.x), -sin(rotate.x), 0.0],
-            [0.0, sin(rotate.x), cos(rotate.x), 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ]
-        rotation_matrix_y = [
-            [cos(rotate.y), 0.0, sin(rotate.y), 0.0],
-            [0.0, 1.0, 0.0, 0.0],
-            [-sin(rotate.y), 0.0, cos(rotate.y), 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ]
-        rotation_matrix_z = [
-            [cos(rotate.z), -sin(rotate.z), 0.0, 0.0],
-            [sin(rotate.z), cos(rotate.z), 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ]
+						a = self.transform(vertices[f1])
+						b = self.transform(vertices[f2])
+						c = self.transform(vertices[f3])
 
-        rotation_matrix = matrix_mul(
-            matrix_mul(rotation_matrix_x, rotation_matrix_y), rotation_matrix_z
-        )
-        self.Model = matrix_mul(
-            matrix_mul(translate_matrix, rotation_matrix), scale_matrix
-        )
+						if shader:
+							t1 = face[0][1] - 1
+							t2 = face[1][1] - 1
+							t3 = face[2][1] - 1
+							nA = normals[t1]
+							nB = normals[t2]
+							nC = normals[t3]
+							self.triangle(a, b, c, base_color=color, shader=shader, normals=(nA, nB, nC))
+						else:
+							normal = self.norm(self.cross(self.sub(b,a), self.sub(c,a)))
+							intensity = self.dot(normal, light)
 
-    # loads view matrix
-    def load_view_matrix(self, x, y, z, center):
-        M = [
-            [x.x, x.y, x.z, 0.0],
-            [y.x, y.y, y.z, 0.0],
-            [z.x, z.y, z.z, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ]
+							if not self.texture.is_textured():
+								if intensity < 0:
+									continue
+								self.triangle(a, b, c,color=self.set_color(color[0]*intensity, color[1]*intensity, color[2]*intensity))
 
-        O = [
-            [1.0, 0.0, 0.0, -center.x],
-            [0.0, 1.0, 0.0, -center.y],
-            [0.0, 0.0, 1.0, -center.z],
-            [0.0, 0.0, 0.0, 1.0],
-        ]
+		else:
+			print("No materials")
+			for face in faces:
+				vcount = len(face)
 
-        self.View = matrix_mul(M, O)
+				if vcount == 3:
+					f1 = face[0][0] - 1
+					f2 = face[1][0] - 1
+					f3 = face[2][0] - 1
 
-    # loads projection matrix
-    def load_projection_matrix(self, coefficient):
-        self.Projection = [
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
-            [0.0, 0.0, -coefficient, 1.0],
-        ]
+					a = self.transform(vertices[f1])
+					b = self.transform(vertices[f2])
+					c = self.transform(vertices[f3])
 
-    # loads viewport matrix
-    def load_viewport_matrix(self, x=0, y=0):
-        self.Viewport = [
-            [self.width / 2, 0.0, 0.0, y + (self.width / 2)],
-            [0.0, self.height / 2, 0.0, x + (self.height / 2)],
-            [0.0, 0.0, 128.0, 128.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ]
+					if shader:
+						nA = normals[f1]
+						nB = normals[f2]
+						nC = normals[f3]
+						self.triangle(a, b, c, base_color=color, shader=shader, normals=(nA, nB, nC))
+					else:
 
-    """
-    eye: xyz camera location 
-    center: camera center view
-    up: camera vector
-    """
+						normal = self.norm(self.cross(self.sub(b,a), self.sub(c,a)))
+						intensity = self.dot(normal, light)
 
-    def look_at(self, 
-        eye=(0, 0.5, 0.5),
-        up=(0, 1, 0),
-        center=(0, 0, 0)):
+						if not self.texture.is_textured():
+							if intensity < 0:
+								continue
+							self.triangle(a, b, c,color=self.set_color(intensity, intensity, intensity))
+						else:
+							if self.texture.is_textured():
+								t1 = face[0][-1] - 1
+								t2 = face[1][-1] - 1
+								t3 = face[2][-1] - 1
+								tA = textures[t1]
+								tB = textures[t2]
+								tC = textures[t3]
+								self.triangle(a, b, c, texture=self.texture.is_textured(), texture_coords=(tA, tB, tC), intensity=intensity)
+				else:
+					f1 = face[0][0] - 1
+					f2 = face[1][0] - 1
+					f3 = face[2][0] - 1
+					f4 = face[3][0] - 1
 
-        eye = V3(*eye)
-        up = V3(*up)
-        center = V3(*center)
+					vertex_list = [
+						self.transform(vertices[f1]),
+						self.transform(vertices[f2]),
+						self.transform(vertices[f3]),
+						self.transform(vertices[f4])
+					]
+					
+					normal = self.norm(self.cross(self.sub(vertex_list[0], vertex_list[1]), self.sub(vertex_list[1], vertex_list[2]))) 
+					intensity = self.dot(normal, light)
+					
+					A, B, C, D = vertex_list
 
-        # z vector comes from center to eye
-        z = norm(sub(eye, center))
-        x = norm(cross(up, z))
-        y = norm(cross(z, x))
+					if not textured:
+						if intensity < 0:
+							continue
+						self.triangle(A, B, C, color=self.set_color(intensity, intensity, intensity))
+						self.triangle(A, C, D, color=self.set_color(intensity, intensity, intensity))
+					else:
+						if self.texture.is_textured():
+							t1 = face[0][-1] - 1
+							t2 = face[1][-1] - 1
+							t3 = face[2][-1] - 1
+							t4 = face[3][-1] - 1
 
-        self.load_view_matrix(x, y, z, center)
-        self.load_projection_matrix(-1.0 / length(sub(eye, center)))
-        self.load_viewport_matrix()
-
-    # draw just shape of model
-    def draw_arrays(self, polygon):
-        if polygon == "TRIANGLES":
-            try:
-                while True:
-                    self.triangle()
-            except StopIteration:
-                print("Done.")
-
-    # loads background image
-    def load_background(self, texture=None):
-        for x in range(self.width):
-            for y in range(self.height):
-                color = texture.pixels[y][x]
-                self.point(x, y, color)
-
-    def load(
-        self,
-        filename,
-        translate=(0, 0, 0),
-        scale=(1, 1, 1),
-        rotate=(0, 0, 0),        
-        light=V3(0, 0, 1),
-    ):
-
-        model = Obj(filename)
-
-        self.load_model_matrix(translate, scale, rotate)
-
-        for face in model.faces:
-            vcount = len(face)
-
-            if vcount == 3:
-                n1 = face[0][2] - 1
-                n2 = face[1][2] - 1
-                n3 = face[2][2] - 1
-
-                na = V3(*model.normals[n1])
-                nb = V3(*model.normals[n2])
-                nc = V3(*model.normals[n3])
-
-                f1 = face[0][0] - 1
-                f2 = face[1][0] - 1
-                f3 = face[2][0] - 1
-
-                a = self.transform(model.vertices[f1])
-                b = self.transform(model.vertices[f2])
-                c = self.transform(model.vertices[f3])
-
-                normal = norm(cross(sub(b, a), sub(c, a)))
-                intensity = dot(normal, light)
-                shade = round(255 * intensity)
-
-                if shade < 0:
-                    continue
-                elif shade > 255:
-                    shade = 255
-
-                if intensity > 1.0:
-                    intensity = 1
-
-                r_color, g_color, b_color = 255, 255, 255
-
-                if self.active_material != None: 
-                    material = self.active_material
-                    for key in model.matf:
-                        for vertices in model.matf[key]:
-                            if face[0] == vertices[0] and face[1] == vertices[1] and face[2] == vertices[2]:
-                                r_color = round(material.rgb_dict[key][0])
-                                g_color = round(material.rgb_dict[key][1])
-                                b_color = round(material.rgb_dict[key][2])
-
-                texture = self.active_texture
-
-                if not texture:
-                    self.triangle(
-                        a,
-                        b,
-                        c,
-                        fill_color=color(r_color, g_color, b_color),
-                        texture=None,
-                        texture_coords=(),
-                        intensity=intensity,
-                        normals=(na, nb, nc),
-                        light=light,
-                    )
-
-                else:
-                    vertex_buffer_object = []
-                    for facepart in face:
-                        if len(model.tvertices[facepart[1] - 1]) == 2:
-                            tvertex = V2(*model.tvertices[facepart[1] - 1])
-                        elif len(model.tvertices[facepart[1] - 1]) == 3:
-                            tvertex = V3(*model.tvertices[facepart[1] - 1])
-                        vertex_buffer_object.append(tvertex)
-
-                    t1 = face[0][1] - 1
-                    t2 = face[1][1] - 1
-                    t3 = face[2][1] - 1
-
-                    tA = vertex_buffer_object[0]
-                    tB = vertex_buffer_object[1]
-                    tC = vertex_buffer_object[2]
-
-                    if self.active_shader != None:
-                        self.triangle(
-                            a,
-                            b,
-                            c,
-                            fill_color=color(round(r_color), round(g_color), round(b_color)),
-                            texture=texture,
-                            texture_coords=(tA, tB, tC),
-                            intensity=intensity,
-                            normals=(na, nb, nc),
-                            light=light,
-                        )
-                    else:
-                        self.triangle(
-                            a,
-                            b,
-                            c,
-                            fill_color=color(round(shade * r_color), round(shade * g_color), round(shade * b_color)),
-                            texture=texture,
-                            texture_coords=(tA, tB, tC),
-                            intensity=intensity,
-                        )
+							tA = textures[t1]
+							tB = textures[t2]
+							tC = textures[t3]
+							tD = textures[t4]
+							self.triangle(A, B, C, texture=self.texture.is_textured(), texture_coords=(tA, tB, tC), intensity=intensity)
+							self.triangle(A, C, D, texture=self.texture.is_textured(), texture_coords=(tA, tC, tD), intensity=intensity)
 
 
+	def triangle(self, A, B, C, color=None, texture=None, texture_coords=(), intensity=1, normals=None, shader=None, base_color=(1,1,1)):
+		"""
+		Draws a triangle with ABC vertices
+		"""
+		bbox_min, bbox_max = self.bbox(A, B, C)
 
-    # starts creating a new bmp file
-    def finish(self, filename="out.bmp"):
-        f = open(filename, "bw")
+		for x in range(bbox_min[0], bbox_max[0] + 1):
+			for y in range(bbox_min[1], bbox_max[1] + 1):
+				w, v, u = self.barycentric(A, B, C, x, y)
+				if w < 0 or v < 0 or u < 0:
+					continue
+				if texture:
+					tA, tB, tC = texture_coords
+					tx = tA[0] * w + tB[0] * v + tC[0] * u
+					ty = tA[1] * w + tB[1] * v + tC[1] * u
+					color = self.texture.get_color(tx, ty, intensity)
+				elif shader:
+					color = shader(self, bary=(w,u,v), normals=normals, base_color=base_color)
+				z = A[2] * w + B[2] * v + C[2] * u
+				if x<0 or y<0:
+					continue
+				if z > self.image.get_zbuffer_value(x,y):
+					self.image.point(x, y, color)
+					self.image.set_zbuffer_value(x,y,z)
 
-        f.write(char("B"))
-        f.write(char("M"))
-        f.write(dword(14 + 40 + self.width * self.height * 3))
-        f.write(dword(0))
-        f.write(dword(14 + 40))
 
-        # image header
-        f.write(dword(40))
-        f.write(dword(self.width))
-        f.write(dword(self.height))
-        f.write(word(1))
-        f.write(word(24))
-        f.write(dword(0))
-        f.write(dword(self.width * self.height * 3))
-        f.write(dword(0))
-        f.write(dword(0))
-        f.write(dword(0))
-        f.write(dword(0))
+	def bbox(self, *vertex_list):
+		"""
+		Smallest possible bounding box
+		"""
+		xs = [vertices[0] for vertices in vertex_list]
+		ys = [vertices[1] for vertices in vertex_list]
+		xs.sort()
+		ys.sort()
+		return (xs[0], ys[0]), (xs[-1], ys[-1])
 
-        # Finishing placing points
-        try:
-            for x in range(self.height):
-                for y in range(self.width):
-                    f.write(self.framebuffer[x][y])
-        except:
-            print("Your obj file is too big. Try another scale/translate values")
+	def load(self, filename, translate=(0, 0, 0), scale=(1, 1, 1), fill=True, textured=None, rotate=(0, 0, 0)):
+		"""
+		Loads OBJ file, but as Wireframe
+		"""
+		print("Rendering (wireframe)...")
 
-        f.close()
+		self.model_matrix(translate, scale, rotate)
+		self.obj = OBJ(filename)
+		self.obj.load()
+
+		vertices = self.obj.vertices
+		faces = self.obj.faces
+		normals = self.obj.normals
+		materials = self.obj.materials
+		textures = self.obj.textures
+		light = (0,0,1)
+		
+		if materials and not textured:
+			mat_index = self.obj.material_faces
+			for mat in mat_index:
+				diffuse_color = materials[mat[1]].diffuse_color
+				for i in range(mat[0][0], mat[0][1]):
+					coords = []
+					texture_coords = []
+					for face in faces[i]:
+						coord = ((vertices[face[0]-1][0] + translate[0]) * scale[0], (vertices[face[0]-1][1] + translate[1]) * scale[1], (vertices[face[0]-1][2] + translate[2]) * scale[2])
+						coords.append(coord)
+					if fill:
+						inner_intensity = self.dot(normals[face[1]-1], light)
+						if inner_intensity < 0:
+							continue
+						self.fill_polygon(coords, color=(inner_intensity*diffuse_color[0],inner_intensity*diffuse_color[1],inner_intensity*diffuse_color[2]))
+					else:
+						self.draw_polygon(coords)
+
+		elif textured and not materials:
+			for face in faces:
+				coords = []
+				texture_coords = []
+				for inner_vertex in face:
+					coord = ((vertices[inner_vertex[0]-1][0] + translate[0]) * scale[0], (vertices[inner_vertex[0]-1][1] + translate[1]) * scale[1], (vertices[inner_vertex[0]-1][2] + translate[2]) * scale[2])
+					coords.append(coord)
+					if len(inner_vertex) > 2:
+						text = ((textures[inner_vertex[2]-1][0]+ translate[0]) * scale[0], (textures[inner_vertex[2]-1][1]+ translate[1]) * scale[1])
+						texture_coords.append(text)
+				if fill:
+					inner_intensity = self.dot(normals[inner_vertex[1]-1], light)
+					if inner_intensity < 0:
+						continue
+					self.fill_polygon(coords, intensity=inner_intensity, texture=textured, texture_coords=texture_coords)
+				else:
+					self.draw_polygon(coords)
+				coords = []
+		else:
+			for face in faces:
+				coords = []
+				texture_coords = []
+				for inner_vertex in face:
+					coord = vertices[inner_vertex[0]-1]
+					coords.append(coord)
+				if fill:
+					inner_intensity = self.dot(normals[inner_vertex[1]-1], light)
+					if inner_intensity < 0:
+						continue
+					self.fill_polygon(coords, color=(inner_intensity,inner_intensity,inner_intensity))
+				else:
+					self.draw_polygon(coords)
+				coords = []
+
+	def draw_polygon(self, vertex_list):
+		"""
+		Draws a simple polygon based on vertex_list
+		"""
+		for i in range(len(vertex_list)):
+			if i == len(vertex_list)-1:
+				start = vertex_list[i]
+				final = vertex_list[0]
+			else:
+				start = vertex_list[i]
+				final = vertex_list[i+1]
+			self.line(start[0], start[1], final[0], final[1])
+
+	def fill_polygon(self, vertex_list, color=None, texture=None, intensity=1, texture_coords = (), z_val=True):
+		"""
+		Draws and Fills a simple polygon based on vertex_list
+		"""
+		if not texture:
+			color = self.color if color == None else self.image.color(int(255*color[0]), int(255*color[1]), int(255*color[2]))
+		else:
+			if self.texture == None:
+				text = Texture(texture)
+				self.texture = text
+			else:
+				text = self.texture
+		start_x = (sorted(vertex_list, key=lambda tup: tup[0])[0][0])
+		finish_x = (sorted(vertex_list, key=lambda tup: tup[0], reverse = True)[0][0])
+
+		start_y = (sorted(vertex_list, key=lambda tup: tup[1])[0][1])
+		finish_y = (sorted(vertex_list, key=lambda tup: tup[1], reverse=True)[0][1])
+		
+		start_x = int(self.viewport_size[0] * (start_x+1) * (1/2) + self.viewport_start[0])
+		finish_x = int(self.viewport_size[0] * (finish_x+1) * (1/2) + self.viewport_start[0])
+
+		start_y = int(self.viewport_size[0] * (start_y+1) * (1/2) + self.viewport_start[0])
+		finish_y = int(self.viewport_size[0] * (finish_y+1) * (1/2) + self.viewport_start[0])
+		for x in range(start_x, finish_x+1):
+			for y in range(start_y, finish_y+1):
+				is_inside = self.point_inside_polygon(self.normalize_x(x), self.normalize_y(y), vertex_list)
+				if is_inside:
+					if texture:
+						A = (self.normalize_inv_x(vertex_list[0][0]), self.normalize_inv_x(vertex_list[0][1]))
+						B = (self.normalize_inv_x(vertex_list[1][0]), self.normalize_inv_x(vertex_list[1][1]))
+						C = (self.normalize_inv_x(vertex_list[2][0]), self.normalize_inv_x(vertex_list[2][1]))
+						w,v,u = self.barycentric(A, B, C, x, y)
+						A = texture_coords[0]
+						B = texture_coords[1]
+						C = texture_coords[2]
+						tx = A[0] * w + B[0] * v +  C[0] * u
+						ty = A[1] * w + B[1] * v + C[1] * u
+						color = text.get_color(tx, ty, intensity=intensity)
+					z = self.get_zplane_value(vertex_list, x, y)
+					if z > self.image.get_zbuffer_value(x,y):
+						self.image.point(x, y, color)
+						self.image.set_zbuffer_value(x,y,z)
+
+	def barycentric(self, A, B, C, x, y):
+		"""
+		Gets barycentric coords
+		"""
+		v1 = (C[0]-A[0], B[0]-A[0],A[0]-x)
+		v2 = (C[1]-A[1], B[1]-A[1],A[1]-y)		
+		bary = self.cross(v1, v2)	
+		if abs(bary[2])<1:
+			return -1,-1,-1
+
+		return ( 1 - (bary[0] + bary[1]) / bary[2], bary[1] / bary[2], bary[0] / bary[2])
+	
+	def normalize_x(self, x):
+		"""
+		Normalizes x coord
+		"""
+		normalize_x = ((2*x)/self.viewport_size[0]) - self.viewport_start[0] - 1
+		return normalize_x
+
+	def normalize_y(self, y):
+		"""
+		Normalizes y coord
+		"""
+		normalize_y = ((2*y)/self.viewport_size[1]) - self.viewport_start[1] - 1
+		return normalize_y
+
+	def normalize_inv_x(self, x):
+		"""
+		Normalizes x inv coord
+		"""
+		normalize_x = int(self.viewport_size[0] * (x+1) * (1/2) + self.viewport_start[0])
+		return normalize_x
+
+	def normalize_inv_y(self, y):
+		"""
+		Normalizes y inv coord
+		"""
+		normalize_y = int(self.viewport_size[0] * (y+1) * (1/2) + self.viewport_start[0])
+		return normalize_y
+
+	def norm(self, v0):
+		v = self.length(v0)
+		if not v:
+			return [0,0,0]
+		return [v0[0]/v, v0[1]/v, v0[2]/v]
+
+	def length(self, v0):
+		return (v0[0]**2 + v0[1]**2 + v0[2]**2)**0.5
+
+	def point_inside_polygon(self,x, y, vertex_list):
+		"""
+		Checks if (x, y) point is inside polygon 
+		"""
+		even_accumulator = 0
+		point_1 = vertex_list[0]
+		n = len(vertex_list)
+		for i in range(n+1):
+			point_2 = vertex_list[i % n]
+			if(y > min(point_1[1], point_2[1])):
+				if(y <= max(point_1[1], point_2[1])):
+					if(point_1[1] != point_2[1]):
+						xinters = (y-point_1[1])*(point_2[0]-point_1[0])/(point_2[1]-point_1[1])+point_1[0]
+						if(point_1[0] == point_2[0] or x <= xinters):
+							even_accumulator += 1
+			point_1 = point_2
+		if(even_accumulator % 2 == 0):
+			return False
+		else:
+			return True
+			
+	def dot(self, v0, v1):
+		"""
+		Dot product
+		"""
+		return v0[0] * v1[0] + v0[1] * v1[1] + v0[2] * v1[2]
+
+	def cross(self, v0, v1):
+		"""
+		Cross product
+		"""
+		return [v0[1] * v1[2] - v0[2] * v1[1], v0[2] * v1[0] - v0[0] * v1[2], v0[0] * v1[1] - v0[1] * v1[0]]
+
+	def vector(self, p, q):
+		"""
+		Vector pq
+		"""
+		return [q[0]-p[0], q[1]-p[1], q[2]-p[2]]
+
+	def sub(self, v0, v1):
+		"""
+		Vector subtraction
+		"""
+		return [v0[0] - v1[0], v0[1] - v1[1], v0[2] - v1[2]]
+
+	def get_zplane_value(self, vertex_list, x,y):
+		"""
+		Gets z-coord in (x,y,z) found in the plane that passes through the first 3 points of vertex_list
+		"""
+		pq = self.vector(vertex_list[0], vertex_list[1])
+		pr = self.vector(vertex_list[0], vertex_list[2])
+		normal = self.cross(pq, pr)
+		if normal[2]:
+			z = ((normal[0]*(x-vertex_list[0][0])) + (normal[1]*(y-vertex_list[0][1])) - (normal[2]*vertex_list[0][2]))/(-normal[2])
+			return z
+		else:
+			return -float("inf")
+
+	def finish_zbuffer(self, filename = None):
+		"""
+		Renders the z buffer stored
+		"""
+		if filename == None:
+			filename = self.filename.split(".")[0] + "zbuffer.bmp"
+		self.image.write(filename, zbuffer = True)
+
+	def model_matrix(self, translate=(0, 0, 0), scale=(1, 1, 1), rotate=(0, 0, 0)):
+		"""
+		Generates model matrix
+		"""
+		translation_matrix = Matrix([[1, 0, 0, translate[0]],[0, 1, 0, translate[1]],[0, 0, 1, translate[2]],[0, 0, 0, 1],])
+		a = rotate[0]
+		rotation_matrix_x = Matrix([[1, 0, 0, 0],[0, cos(a), -sin(a), 0],[0, sin(a),  cos(a), 0],[0, 0, 0, 1]])
+		a = rotate[1]
+		rotation_matrix_y = Matrix([[cos(a), 0,  sin(a), 0],[0, 1, 0, 0],[-sin(a), 0,  cos(a), 0],[ 0, 0, 0, 1]])
+		a = rotate[2]
+		rotation_matrix_z = Matrix([[cos(a), -sin(a), 0, 0],[sin(a),  cos(a), 0, 0],[0, 0, 1, 0],[0, 0, 0, 1]])
+		rotation_matrix = rotation_matrix_x * rotation_matrix_y * rotation_matrix_z
+		scale_matrix = Matrix([[scale[0], 0, 0, 0],[0, scale[1], 0, 0],[0, 0, scale[2], 0],[0, 0, 0, 1],])
+		self.Model = translation_matrix * rotation_matrix * scale_matrix
+
+	def view_matrix(self, x, y, z, center):
+		"""
+		Generates view matrix
+		"""
+		m = Matrix([[x[0], x[1], x[2],  0],[y[0], y[1], y[2], 0],[z[0], z[1], z[2], 0],[0,0,0,1]])
+		o = Matrix([[1, 0, 0, -center[0]],[0, 1, 0, -center[1]],[0, 0, 1, -center[2]],[0, 0, 0, 1]])
+		self.View = m * o
+
+	def projection_matrix(self, coeff):
+		"""
+		Generates projection matrix
+		"""
+		self.Projection = Matrix([[1, 0, 0, 0],[0, 1, 0, 0],[0, 0, 1, 0],[0, 0, coeff, 1]])
+
+	def viewport_matrix(self, x=0, y =0):
+		"""
+		Generates viewport matrix
+		"""
+		self.Viewport =  Matrix([[self.image.width/2, 0, 0, x + self.image.width/2],[0, self.image.height/2, 0, y + self.image.height/2],[0, 0, 128, 128],[0, 0, 0, 1]])
+
+	def look_at(self, eye, center, up):
+		"""
+		Defines camera position
+		"""
+		z = self.norm(self.sub(eye, center))
+		x = self.norm(self.cross(up, z))
+		y = self.norm(self.cross(z,x))
+		self.view_matrix(x, y, z, center)
+		self.projection_matrix(-1/self.length(self.sub(eye, center)))
+		self.viewport_matrix()
+
+	def transform(self, vertices):
+		agv = Matrix([[vertices[0]],[vertices[1]],[vertices[2]],[1]])
+		transformed_vertex = self.Viewport * self.Projection * self.View * self.Model * agv
+		transformed_vertex = transformed_vertex.to_list()
+		trans = [round(transformed_vertex[0][0]/transformed_vertex[3][0]), round(transformed_vertex[1][0]/transformed_vertex[3][0]), round(transformed_vertex[2][0]/transformed_vertex[3][0])]
+		return trans
