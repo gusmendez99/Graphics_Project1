@@ -25,24 +25,20 @@ class Render(object):
         self.light = V3(0, 0, 1)
         self.active_shader = None
         self.active_texture = None
+        self.active_material = None
         self.active_vertex_array = []
         self.clear()
 
     def clear(self):
-        self.framebuffer = [[BLACK for x in range(self.width)] for y in range(self.height)]
+        self.framebuffer = [
+            [BLACK for x in range(self.width)] for y in range(self.height)
+        ]
         self.zbuffer = [
             [-float("inf") for x in range(self.width)] for y in range(self.height)
         ]
 
     def point(self, x, y, color):
         self.framebuffer[y][x] = color
-
-    """ def clear_color(self):
-        r, g, b = BLACK
-        bg_color = color(r, g, b)
-        self.framebuffer = [
-            [bg_color for x in range(self.width)] for y in range(self.height)
-        ] """
 
     def clear_color(self, r=1, g=1, b=1):
         # get normalized colors as array
@@ -53,38 +49,61 @@ class Render(object):
             [clearColor for x in range(self.width)] for y in range(self.height)
         ]
 
-    def triangle(self, A, B, C, color= BLACK, texture= None, texture_coords=(), intensity=1, normals=(None, None, None), light = V3(0,1,1)):
+    def triangle(
+        self,
+        A,
+        B,
+        C,
+        fill_color=WHITE,
+        texture=None,
+        texture_coords=(),
+        intensity=1,
+        normals=(None, None, None),
+        light=V3(0, 1, 1)
+    ):
         bbox_min, bbox_max = bbox(A, B, C)
 
-        fill_color = color
-        
         for x in range(bbox_min.x, bbox_max.x + 1):
-            for y in range (bbox_min.y, bbox_max.y + 1):
-                w, v, u = barycentric(A,B,C, V2(x,y))
-                if w< 0 or v <0 or u<0:
+            for y in range(bbox_min.y, bbox_max.y + 1):
+                w, v, u = barycentric(A, B, C, V2(x, y))
+                if w < 0 or v < 0 or u < 0:
                     continue
-                
-                if texture and x>=0 and y >=0 and x < self.width and y< self.height:
+
+                if texture and x >= 0 and y >= 0 and x < self.width and y < self.height:
                     tA, tC, tB = texture_coords
-                    tx = tA.x*w + tB.x*v + tC.x*u
-                    ty = tA.y*w + tB.y*v + tC.y*u
+                    tx = tA.x * w + tB.x * v + tC.x * u
+                    ty = tA.y * w + tB.y * v + tC.y * u
                     if self.active_shader != None:
-                        fill_color = self.active_shader(self, x, y, bary_coords=(w,v,u), normals=normals, light = light, texture_coords = (tx, ty))
+                        fill_color = self.active_shader(
+                            self,
+                            x,
+                            y,
+                            bary_coords=(w, v, u),
+                            normals=normals,
+                            light=light,
+                            texture_coords=(tx, ty),
+                        )
                     else:
                         fill_color = texture.get_color(tx, ty, intensity)
 
-                    z = A.z * w + B.z * v  + C.z * u
-                    
+                    z = A.z * w + B.z * v + C.z * u
+
                     if z > self.zbuffer[y][x]:
                         self.point(x, y, fill_color)
                         self.zbuffer[y][x] = z
 
-                if not texture and x>=0 and y >=0 and x < self.width and y< self.height:
-                    fill_color = color(fill_color[0],fill_color[1],fill_color[2])
-                    z = A.z * w + B.z * v  + C.z * u
-                    if z > self.zbuffer[x][y]:
-                        self.point(x,y,fill_color)
-                        self.zbuffer[x][y] = z
+                if (
+                    not texture
+                    and x >= 0
+                    and y >= 0
+                    and x < self.width
+                    and y < self.height
+                ):
+                    fill_color = color(fill_color[0], fill_color[1], fill_color[2])
+                    z = A.z * w + B.z * v + C.z * u
+                    if z > self.zbuffer[y][x]:
+                        self.point(x, y, fill_color)
+                        self.zbuffer[y][x] = z
 
     def transform(self, vertex):
         augmented = [[float(vertex[0])], [float(vertex[1])], [float(vertex[2])], [1.0]]
@@ -191,7 +210,14 @@ class Render(object):
     up: camera vector
     """
 
-    def look_at(self, eye, up, center):
+    def look_at(self, 
+        eye=(0, 0.5, 0.5),
+        up=(0, 1, 0),
+        center=(0, 0, 0)):
+
+        eye = V3(*eye)
+        up = V3(*up)
+        center = V3(*center)
 
         # z vector comes from center to eye
         z = norm(sub(eye, center))
@@ -218,43 +244,44 @@ class Render(object):
                 color = texture.pixels[y][x]
                 self.point(x, y, color)
 
-    def load(self, filename, texture, translate =(0,0,0), scale= (1, 1, 1), rotate = (0,0,0),
-            eye = (0,0.5,0.5), up = (0,1,0), center=(0,0,0), light = V3(0,0,1)):
-        
-        self.active_texture = texture
-        #self.active_shader = gourad
+    def load(
+        self,
+        filename,
+        translate=(0, 0, 0),
+        scale=(1, 1, 1),
+        rotate=(0, 0, 0),        
+        light=V3(0, 0, 1),
+    ):
 
         model = Obj(filename)
 
-        self.load_viewport_matrix()
         self.load_model_matrix(translate, scale, rotate)
-        self.look_at(V3(*eye), V3(*up), V3(*center))
 
         for face in model.faces:
             vcount = len(face)
 
-            if vcount == 3:    
-                n1 = face[0][2] -1
-                n2 = face[1][2] -1
-                n3 = face[2][2] -1
+            if vcount == 3:
+                n1 = face[0][2] - 1
+                n2 = face[1][2] - 1
+                n3 = face[2][2] - 1
 
                 na = V3(*model.normals[n1])
                 nb = V3(*model.normals[n2])
                 nc = V3(*model.normals[n3])
-                
-                f1 = face[0][0] -1
-                f2 = face[1][0] -1
-                f3 = face[2][0] -1
+
+                f1 = face[0][0] - 1
+                f2 = face[1][0] - 1
+                f3 = face[2][0] - 1
 
                 a = self.transform(model.vertices[f1])
                 b = self.transform(model.vertices[f2])
                 c = self.transform(model.vertices[f3])
 
-                normal = norm(cross(sub(b,a), sub(c, a)))
+                normal = norm(cross(sub(b, a), sub(c, a)))
                 intensity = dot(normal, light)
                 shade = round(255 * intensity)
 
-                if shade <0 :
+                if shade < 0:
                     continue
                 elif shade > 255:
                     shade = 255
@@ -262,29 +289,44 @@ class Render(object):
                 if intensity > 1.0:
                     intensity = 1
 
-                        
+                r_color, g_color, b_color = 255, 255, 255
+
+                if self.active_material != None: 
+                    material = self.active_material
+                    for key in model.matf:
+                        for vertices in model.matf[key]:
+                            if face[0] == vertices[0] and face[1] == vertices[1] and face[2] == vertices[2]:
+                                r_color = round(material.rgb_dict[key][0])
+                                g_color = round(material.rgb_dict[key][1])
+                                b_color = round(material.rgb_dict[key][2])
+
+                texture = self.active_texture
+
                 if not texture:
                     self.triangle(
-                        a,b,c, 
-                        texture = None, 
-                        texture_coords = (),
-                        intensity = intensity,
-                        normals = (na, nc, nb),
-                        light=light
+                        a,
+                        b,
+                        c,
+                        fill_color=color(r_color, g_color, b_color),
+                        texture=None,
+                        texture_coords=(),
+                        intensity=intensity,
+                        normals=(na, nb, nc),
+                        light=light,
                     )
-                    
+
                 else:
                     vertex_buffer_object = []
                     for facepart in face:
-                        if len(model.tvertices[facepart[1]-1]) == 2:
-                            tvertex = V2(*model.tvertices[facepart[1]-1])
-                        elif len(model.tvertices[facepart[1]-1]) == 3:
-                            tvertex = V3(*model.tvertices[facepart[1]-1])
+                        if len(model.tvertices[facepart[1] - 1]) == 2:
+                            tvertex = V2(*model.tvertices[facepart[1] - 1])
+                        elif len(model.tvertices[facepart[1] - 1]) == 3:
+                            tvertex = V3(*model.tvertices[facepart[1] - 1])
                         vertex_buffer_object.append(tvertex)
 
-                    t1 = face[0][1]-1
-                    t2 = face[1][1]-1
-                    t3 = face[2][1]-1
+                    t1 = face[0][1] - 1
+                    t2 = face[1][1] - 1
+                    t3 = face[2][1] - 1
 
                     tA = vertex_buffer_object[0]
                     tB = vertex_buffer_object[1]
@@ -292,20 +334,28 @@ class Render(object):
 
                     if self.active_shader != None:
                         self.triangle(
-                            a,b,c,
+                            a,
+                            b,
+                            c,
+                            fill_color=color(round(r_color), round(g_color), round(b_color)),
                             texture=texture,
-                            texture_coords= (tA, tB, tC), 
-                            intensity = intensity,
-                            normals = (na, nc, nb),
-                            light=light
+                            texture_coords=(tA, tB, tC),
+                            intensity=intensity,
+                            normals=(na, nb, nc),
+                            light=light,
                         )
                     else:
                         self.triangle(
-                            a,b,c,
+                            a,
+                            b,
+                            c,
+                            fill_color=color(round(shade * r_color), round(shade * g_color), round(shade * b_color)),
                             texture=texture,
-                            texture_coords= (tA, tB, tC), 
-                            intensity = intensity,
+                            texture_coords=(tA, tB, tC),
+                            intensity=intensity,
                         )
+
+
 
     # starts creating a new bmp file
     def finish(self, filename="out.bmp"):

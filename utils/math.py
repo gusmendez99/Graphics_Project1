@@ -8,6 +8,7 @@ from collections import namedtuple
 V2 = namedtuple("Vertex2", ["x", "y"])
 V3 = namedtuple("Vertex3", ["x", "y", "z"])
 
+
 def sum(v0, v1):
     """
         Input: 2 size 3 vectors
@@ -68,9 +69,9 @@ def bbox(*vertices):
     xs.sort()
     ys.sort()
 
-    xmin = int(xs[0])    
+    xmin = int(xs[0])
     xmax = int(xs[-1])
-    ymin = int(ys[0])    
+    ymin = int(ys[0])
     ymax = int(ys[-1])
 
     return V2(xmin, ymin), V2(xmax, ymax)
@@ -97,36 +98,36 @@ def barycentric(A, B, C, P):
     return w, v, u
 
 
-# Transformations 
+# Transformations
+
 
 def matrix_mul(A, B):
     # If A-matrix just have one row
     rows_matrix_a = len(A)
-    try: 
+    try:
         columns_matrix_a = len(A[0])
-    except(TypeError):
+    except (TypeError):
         columns_matrix_a = 1
-    
-    #If B-matrix just have one row
-    try: 
+
+    # If B-matrix just have one row
+    try:
         columns_matrix_b = len(B[0])
-    except(TypeError):
+    except (TypeError):
         columns_matrix_b = 1
 
     # Final matrix
-    
+
     C = []
-    try: 
+    try:
         for i in range(rows_matrix_a):
             C.append([0] * columns_matrix_b)
 
-        # A * B, stores result on C matrix  
+        # A * B, stores result on C matrix
         for i in range(rows_matrix_a):
             for j in range(columns_matrix_b):
                 for k in range(columns_matrix_a):
                     C[i][j] += A[i][k] * B[k][j]
-    
-    except(RuntimeError, TypeError, NameError) as error:
+
+    except (RuntimeError, TypeError, NameError) as error:
         print(error)
     return C
-
