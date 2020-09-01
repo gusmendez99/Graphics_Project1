@@ -1,6 +1,5 @@
 import struct
 
-
 class BMP(object):
     def __init__(self, width, height):
         self.width = abs(int(width))
@@ -33,7 +32,7 @@ class BMP(object):
                 pass
 
     def write(self, filename, zbuffer=False):
-        print("writing bmp file")
+        print("Writing " + filename +" bmp file")
         BLACK = self.color(0, 0, 0)
         import os
 
@@ -88,8 +87,8 @@ class BMP(object):
         for y in range(self.height):
             for x in range(self.width):
                 if x < self.width and y < self.height:
-                    b, g, r = ord(file.read(1)), ord(file.read(1)), ord(file.read(1))
-                    self.point(x, y, self.color(r, g, b))
+                    r, g, b = ord(file.read(1)), ord(file.read(1)), ord(file.read(1))
+                    self.point(x, y, self.color(r, b, g))
         file.close()
 
     def __padding(self, base, c):
@@ -111,13 +110,13 @@ class BMP(object):
 
     def get_zbuffer_value(self, x, y):
         if x < self.width and y < self.height:
-            return self.zbuffer[x][y]
+            return self.zbuffer[y][x]
         else:
             return -float("inf")
 
     def set_zbuffer_value(self, x, y, z):
         if x < self.width and y < self.height:
-            self.zbuffer[x][y] = z
+            self.zbuffer[y][x] = z
             return 1
         else:
             return 0

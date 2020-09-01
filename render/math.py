@@ -127,5 +127,5 @@ class Matrix(object):
 
         return Matrix(result)
 
-    def tolist(self):
+    def to_list(self):
         return self.data

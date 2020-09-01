@@ -19,16 +19,16 @@ from render.math import (
 
 class Render(object):
     def __init__(self):
-        self.__image = BMP(0, 0)
+        self.__render = BMP(0, 0)
         self.__viewport_start = (0, 0)
         self.__viewport_size = (0, 0)
-        self.__color = self.__image.color(255, 255, 255)
+        self.__color = self.__render.color(255, 255, 255)
         self.__filename = "out.bmp"
         self.__obj = None
         self.__active_texture = None
 
     def create_window(self, width, height):
-        self.__image = BMP(width, height)
+        self.__render = BMP(width, height)
         self.__viewport_size = (width, height)
 
     def viewport(self, x, y, width, height):
@@ -36,10 +36,10 @@ class Render(object):
         self.__viewport_size = (width, height)
 
     def clear(self):
-        self.__image.clear()
+        self.__render.clear()
 
     def clear_color(self, r, g, b):
-        self.__image.clear(int(255 * r), int(255 * g), int(255 * b))
+        self.__render.clear(int(255 * r), int(255 * g), int(255 * b))
 
     def vertex(self, x, y):
         viewport_x = int(
@@ -48,7 +48,7 @@ class Render(object):
         viewport_y = int(
             self.__viewport_size[1] * (y + 1) * (1 / 2) + self.__viewport_start[1]
         )
-        self.__image.point(viewport_x, viewport_y, self.__color)
+        self.__render.point(viewport_x, viewport_y, self.__color)
 
     def flood_vertex(self, x, y):
         viewport_x = int(
@@ -57,17 +57,26 @@ class Render(object):
         viewport_y = int(
             self.__viewport_size[1] * (y + 1) * (1 / 2) + self.__viewport_start[1]
         )
-        self.__image.point(viewport_x, viewport_y, self.__color)
-        self.__image.point(viewport_x, viewport_y + 1, self.__color)
-        self.__image.point(viewport_x + 1, viewport_y, self.__color)
-        self.__image.point(viewport_x + 1, viewport_y + 1, self.__color)
+        self.__render.point(viewport_x, viewport_y, self.__color)
+        self.__render.point(viewport_x, viewport_y + 1, self.__color)
+        self.__render.point(viewport_x + 1, viewport_y, self.__color)
+        self.__render.point(viewport_x + 1, viewport_y + 1, self.__color)
 
     def set_color(self, r, g, b):
-        self.__color = self.__image.color(int(255 * r), int(255 * g), int(255 * b))
-        return self.__image.color(int(255 * r), int(255 * g), int(255 * b))
+        self.__color = self.__render.color(int(255 * r), int(255 * g), int(255 * b))
+        return self.__render.color(int(255 * r), int(255 * g), int(255 * b))
+
+    def set_background(self, background):
+        self.__active_texture = Texture(background)
+
+        for x in range(0, self.__viewport_size[0]):
+            for y in range(0, self.__viewport_size[1]):
+                custom = self.__active_texture.get_color((x/self.__viewport_size[0]), (y/self.__viewport_size[1]))
+                self.__render.point(x, y, custom)
+
 
     def finish(self):
-        self.__image.write(self.__filename)
+        self.__render.write(self.__filename)
 
     def line(self, xo, yo, xf, yf):
         """
@@ -93,9 +102,9 @@ class Render(object):
         y = y1
         for x in range(x1, x2 + 1):
             if steep:
-                self.__image.point(y, x, self.__color)
+                self.__render.point(y, x, self.__color)
             else:
-                self.__image.point(x, y, self.__color)
+                self.__render.point(x, y, self.__color)
 
             offset += dy * 2
             if offset >= threshold:
@@ -335,9 +344,9 @@ class Render(object):
                 z = A[2] * w + B[2] * v + C[2] * u
                 if x < 0 or y < 0:
                     continue
-                if z > self.__image.get_zbuffer_value(x, y):
-                    self.__image.point(x, y, color)
-                    self.__image.set_zbuffer_value(x, y, z)
+                if z > self.__render.get_zbuffer_value(x, y):
+                    self.__render.point(x, y, color)
+                    self.__render.set_zbuffer_value(x, y, z)
 
     def load(
         self,
@@ -467,7 +476,7 @@ class Render(object):
             color = (
                 self.__color
                 if color == None
-                else self.__image.color(
+                else self.__render.color(
                     int(255 * color[0]), int(255 * color[1]), int(255 * color[2])
                 )
             )
@@ -521,9 +530,9 @@ class Render(object):
                         ty = A[1] * w + B[1] * v + C[1] * u
                         color = text.get_color(tx, ty, intensity=curr_intensity)
                     z = get_zplane_value(vertex_list, x, y)
-                    if z > self.__image.get_zbuffer_value(x, y):
-                        self.__image.point(x, y, color)
-                        self.__image.set_zbuffer_value(x, y, z)
+                    if z > self.__render.get_zbuffer_value(x, y):
+                        self.__render.point(x, y, color)
+                        self.__render.set_zbuffer_value(x, y, z)
 
     def normalize_x(self, x):
         """
@@ -559,7 +568,7 @@ class Render(object):
 		"""
         if filename == None:
             filename = self.__filename.split(".")[0] + "ZBuffer.bmp"
-        self.__image.write(filename, zbuffer=True)
+        self.__render.write(filename, zbuffer=True)
 
     def model_matrix(self, translate=(0, 0, 0), scale=(1, 1, 1), rotate=(0, 0, 0)):
         """
@@ -647,8 +656,8 @@ class Render(object):
 		"""
         self.Viewport = Matrix(
             [
-                [self.__image.width / 2, 0, 0, x + self.__image.width / 2],
-                [0, self.__image.height / 2, 0, y + self.__image.height / 2],
+                [self.__render.width / 2, 0, 0, x + self.__render.width / 2],
+                [0, self.__render.height / 2, 0, y + self.__render.height / 2],
                 [0, 0, 128, 128],
                 [0, 0, 0, 1],
             ]
@@ -673,7 +682,7 @@ class Render(object):
         transformed_vertex = (
             self.Viewport * self.Projection * self.View * self.Model * augmented
         )
-        transformed_vertex = transformed_vertex.tolist()
+        transformed_vertex = transformed_vertex.to_list()
         transformed = [
             round(transformed_vertex[0][0] / transformed_vertex[3][0]),
             round(transformed_vertex[1][0] / transformed_vertex[3][0]),
